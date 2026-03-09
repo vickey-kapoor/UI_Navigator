@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x:*)",
+      "Bash(pytest:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(python3 -m uvicorn --version)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)",
+      "Bash(powershell:*)",
+      "Bash(set:*)",
+      "Bash(ss:*)",
+      "Bash(python3:*)",
+      "Bash(kill 2002:*)",
+      "Bash(kill 1872:*)",
+      "Bash(xargs kill sleep 2 curl -s --max-time 2 http://127.0.0.1:8080/health)",
+      "Bash(xargs kill sleep 2 cd \"C:\\\\Users\\\\vicke\\\\OneDrive\\\\Documents\\\\GitHub\\\\UI_Navigator\")",
+      "Bash(gcloud:*)",
+      "Bash(command:*)",
+      "Bash(winget install:*)",
+      "Read(//c/Users/vicke/AppData/Local/Google//**)",
+      "Read(//c/Program Files \\(x86\\)/Google//**)",
+      "Read(//c/Program Files/Google//**)",
+      "Bash(ls:*)",
+      "Bash(code:*)",
+      "Bash(export:*)",
+      "Bash(cmd:*)",
+      "WebSearch",
+      "Bash(tasklist:*)",
+      "Bash(tasklist.exe:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(node:*)",
+      "Bash(pkill:*)",
+      "Bash(xargs -I{} taskkill //PID {} //F)",
+      "Bash(lsof:*)",
+      "Bash(kill 1432:*)",
+      "Bash(powershell.exe:*)"
+    ]
+  }
+}
