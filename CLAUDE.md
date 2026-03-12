@@ -4,6 +4,9 @@
 
 AI agent that controls a browser by: taking screenshots → sending to Gemini 2.5 Flash → parsing an action plan → executing via Playwright. Exposed as a FastAPI REST + WebSocket service, containerized, deployed to Cloud Run. Also includes a Chrome Extension (WebPilot) for real-tab browser control via a sidebar UI.
 
+## Standing Rules
+- **Always update CLAUDE.md** after any code change — keep notes, architecture, and testing sections in sync with what's actually in the code.
+
 ## Current Versions
 - **Backend**: `1.4.0` (`src/api/server.py` → `_VERSION`)
 - **Extension**: `1.1.0` (`webpilot-extension/manifest.json` + `sidebar/package.json`)
@@ -104,17 +107,66 @@ monitoring/
 | `GOOGLE_CLOUD_PROJECT` | Deploy only | GCP project ID |
 | `GOOGLE_CLOUD_REGION` | Deploy only | Cloud Run region (default: us-central1) |
 | `BROWSER_HEADLESS` | No | Run Chromium headless (default: true) |
-| `MAX_CONCURRENT_TASKS` | No | Semaphore limit (default: 5) |
+| `MAX_CONCURRENT_TASKS` | No | Semaphore limit + thread pool size (default: 5) |
 | `BROWSER_WIDTH/HEIGHT` | No | Viewport size (default: 1280x800) |
 | `TASK_STORE` | No | `memory` (default) or `firestore` |
 | `GCS_BUCKET` | No | GCS bucket for screenshot uploads |
+| `MAX_SESSION_DURATION` | No | WebPilot session timeout in seconds (default: 1800) |
+| `MAX_RETRIES` | No | Consecutive identical screenshots before "stuck" hint (default: 3) |
+| `GEMINI_MODEL` | No | Gemini model for legacy handler (default: gemini-2.5-flash) |
+| `GEMINI_LIVE_MODEL` | No | Gemini Live API model (default: gemini-live-2.5-flash-preview) |
+| `ACTION_LOOP_TIMEOUT` | No | Hard timeout for entire action loop in seconds (default: 120) |
+| `MAX_LOOP_STEPS` | No | Max steps per action loop invocation (default: 30) |
+
+## Test Dashboard
+
+A live web dashboard shows test results and judge analysis in real time.
+
+```bash
+# Start the dashboard server
+python tests/dashboard_server.py
+
+# Open in browser
+http://localhost:3333
+```
+
+The dashboard auto-refreshes every 3 seconds. **Run All Scenarios** and **Run Judge** buttons are in the bottom toolbar.
+
+Dashboard files:
+- `tests/dashboard_server.py` — stdlib HTTP server (no dependencies), port 3333
+- `tests/dashboard/index.html` — React 18 + Tailwind CDN single-file UI
+- `tests/judge_runner.py` — calls Claude API (`claude-sonnet-4-20250514`) to evaluate the report
+- `tests/agent_runner.py` — pytest orchestrator; writes report to stdout AND `/tmp/wp_test_report.json`
+
+Report files written to `/tmp/` (or `%TEMP%` on Windows):
+- `wp_test_report.json` — latest test run output
+- `wp_judge_output.json` — latest judge analysis
+- `wp_runner.log` — raw subprocess log from dashboard-triggered runs
+
+Required env var for judge:
+- `ANTHROPIC_API_KEY` — if unset, judge writes `{"error": "ANTHROPIC_API_KEY not set"}` to output
+
+Dashboard endpoints:
+- `GET /` — serve index.html
+- `GET /report` — latest test report JSON
+- `GET /judge` — latest judge output JSON
+- `GET /run` — spawn `agent_runner.py --scenario all` (non-blocking)
+- `GET /run_judge` — spawn `judge_runner.py` (non-blocking)
+- `GET /status` — `{runner_running, judge_running, last_run}`
 
 ## Testing Notes
 
 - `asyncio_mode = "auto"` is set in `pyproject.toml`
-- 58 tests total: 16 agent + 18 API + 7 webpilot + 10 sessions + 7 clarifier (all passing)
+- 42 non-browser tests: 18 API + 7 webpilot + 10 sessions + 7 clarifier (all passing); 16 agent tests require Chromium
 - Run non-browser tests only: `python -m pytest tests/test_api.py tests/test_webpilot_api.py tests/test_sessions.py tests/test_clarifier.py -v`
 - Integration tests (test_agent.py) spin up a real Chromium browser — slow, run separately
+
+### core.py / vision.py — Gemini history alternation
+- Gemini requires strict `user → model → user → model` turn alternation
+- `GeminiVisionClient.analyze_screen` stores the user `Content` object in `self._last_user_turn`
+- `UINavigatorAgent._update_history` reads `self._vision._last_user_turn` and prepends it before the model turn
+- `vision.py` uses a dedicated `ThreadPoolExecutor` (sized to `MAX_CONCURRENT_TASKS`) instead of the default pool to prevent thread exhaustion under retry backoff
+- `tasks_started` metric is emitted only in `server.py::_run_agent_task` (not in `core.py::run()`) — avoid double-counting
 
 ### SDK Image Format (google-genai >= 0.8)
 - OLD (broken): `{"mime_type": "image/png", "data": bytes}` dict
@@ -122,16 +174,23 @@ monitoring/
 
 ### server.py lifespan
 - WebPilot handler init is guarded: `if os.environ.get("GOOGLE_API_KEY")` — safe to run tests without key
+- Startup warnings: logs if `API_KEYS` is unset (auth disabled) or if CORS is not configured (defaults to `chrome-extension://*` only)
+- CORS default: `["chrome-extension://*"]` (not `"*"`) when `CORS_ORIGINS` env var is unset
+- `_rate_windows` eviction: uses `had_entry = api_key in _rate_windows` check BEFORE defaultdict access — only evicts keys that existed and were pruned to empty (not brand-new keys)
+- `logger.exception` calls use `%s` format: `logger.exception("msg: %s", exc, extra=...)`
 
 ### webpilot_routes.py
+- **Live API support**: `_create_live_handler(intent)` creates a per-session `WebPilotHandler` (Gemini Live API) with fallback to the shared `LegacyWebPilotHandler`. The `_live_api_client` is injected from `server.py` lifespan via `init_handler(handler, live_client=...)`.
+- **Per-session handler lifecycle**: `session.handler` is set on task start, used throughout the action loop, and closed on WS disconnect, session cleanup, or explicit stop.
 - Confirmation flow: `_run_action_loop` reads confirm message DIRECTLY from WS (not via asyncio.Event) — outer loop is blocked inside the function and cannot process messages
+- `confirm_event` / `confirm_result` fields removed from `WebPilotSession` — they were dead code (could never be set while outer loop blocks during confirmation)
 - Pre-accept close: always `accept()` before `close()` so TestClient doesn't raise WebSocketDisconnect
 - Interruption dispatch: classify → ABORT short-circuits (no Gemini), REDIRECT clears history, REFINEMENT merges intent
-- Auto-retry: tracks MD5 hash of consecutive screenshots; `stuck=True` passed to handler after 3 identical frames
+- Auto-retry: tracks MD5 hash of consecutive screenshots; `stuck=True` passed to handler after 3 identical frames; `_prev_hash` reset to `b""` when stuck counter resets (forces fresh baseline)
 
 ### webpilot_handler.py
-- `thinking_budget=0` set on ALL Gemini calls — disables 2.5 Flash reasoning mode for fast step decisions
-- `classify_interruption_type()`: checks REDIRECT keywords BEFORE ABORT so "Actually cancel" → REDIRECT (keeps test passing)
+- `thinking_budget=1024` on ALL Gemini calls — allows reasoning budget for spatial vision tasks
+- `classify_interruption_type()`: checks ABORT keywords BEFORE REDIRECT; abort_keywords = `{"stop", "abort", "quit", "never mind", "nevermind", "forget it", "forget about it"}`; redirect_keywords = `{"instead", "new goal", "start over", "different", "actually"}`
 - `get_narration_audio()`: uses `gemini-2.5-flash-preview-tts` with Aoede voice
 
 ### App.jsx narration rules
@@ -182,6 +241,8 @@ Load: Chrome → `chrome://extensions` → Load unpacked → select `webpilot-ex
 - Session created on install/startup, stored in `chrome.storage.session`, retried with backoff if backend down
 - Keep-alive alarm every 25s prevents service worker from going dormant mid-task
 - Auto-stop: **15 max steps** or **3 consecutive failures** → sends stop to server
+- **Backend URL configurable**: reads from `chrome.storage.sync.get("backendUrl")`, falls back to `http://localhost:8080`. Set via DevTools: `chrome.storage.sync.set({backendUrl: "http://host:port"})`
+- **Message queue poisoning prevention**: `.catch(err => log(...))` on serialized `_messageQueue` chain prevents a crashed handler from blocking all future messages
 
 ### Key Fixes
 - `navigate` → `chrome.tabs.update` (content scripts blocked on new pages)
@@ -204,3 +265,4 @@ Load: Chrome → `chrome://extensions` → Load unpacked → select `webpilot-ex
 | 6 — ADK Extension | MV3 sidepanel, ADK sessions, voice input, real tab control |
 | 7 — WebPilot Extension | WS-driven single-action loop, confirmation flow, interrupt, voice narration |
 | 7.1 — PRD Gap Fixes | InterruptionType classify, thinking_budget=0, narration sync, auto-retry, TTS endpoint |
+| 7.2 — Code Review Fixes | 15-issue pass: history alternation, rate-window eviction, dead confirm code, model allowlist, CORS/auth warnings, duplicate metric, _prev_hash reset, "forget it" abort, dedicated thread pool, text/wait caps, logger.exception sig, configurable backend URL, queue .catch |

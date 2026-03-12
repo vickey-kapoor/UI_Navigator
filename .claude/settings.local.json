@@ -36,7 +36,20 @@
       "Bash(xargs -I{} taskkill //PID {} //F)",
       "Bash(lsof:*)",
       "Bash(kill 1432:*)",
-      "Bash(powershell.exe:*)"
+      "Bash(powershell.exe:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "Bash(claude mcp:*)",
+      "Bash(cd \"C:/Users/vicke/OneDrive/Documents/GitHub/UI_Navigator\" && BROWSER_HEADLESS=false python -m pytest tests/test_agent.py -v 2>&1)",
+      "Bash(cd \"C:/Users/vicke/OneDrive/Documents/GitHub/UI_Navigator\" && WEBPILOT_STUB=navigate_and_done GOOGLE_API_KEY=stub python -m pytest \"tests/test_webpilot_e2e.py::test_task_navigate_and_done\" -v --tb=long 2>&1)",
+      "Bash(cd \"C:/Users/vicke/OneDrive/Documents/GitHub/UI_Navigator\" && GOOGLE_API_KEY=stub python tests/agent_runner.py --scenario all 2>&1)",
+      "Bash(cd \"C:/Users/vicke/OneDrive/Documents/GitHub/UI_Navigator\" && GOOGLE_API_KEY=stub python -m pytest \"tests/test_webpilot_e2e.py::test_abort_interrupt\" -v --tb=short 2>&1 | grep -v \"DeprecationWarning\\\\|warnings.warn\\\\|websockets.server\\\\|websockets.legacy\\\\|remove second\")",
+      "Bash(cd \"C:/Users/vicke/OneDrive/Documents/GitHub/UI_Navigator\" && GOOGLE_API_KEY=stub python -m pytest \"tests/test_webpilot_e2e.py::test_abort_interrupt\" -v --tb=short 2>&1)",
+      "Skill(claude-api)",
+      "Bash(cd \"C:\\\\Users\\\\vicke\\\\OneDrive\\\\Documents\\\\GitHub\\\\UI_Navigator\" && set -a && source .env && set +a && python tests/judge_runner.py)",
+      "Bash(xargs -I{} taskkill /F /PID {})",
+      "Bash(/mnt/c/Windows/System32/cmd.exe /C \"for /f \\\\\"tokens=5\\\\\" %a in \\('netstat -ano ^| findstr :3333 ^| findstr LISTENING'\\) do taskkill /F /PID %a\" 2>/dev/null || \\\\\n/c/Windows/System32/cmd.exe /C \"for /f \\\\\"tokens=5\\\\\" %a in \\('netstat -ano ^| findstr :3333 ^| findstr LISTENING'\\) do taskkill /F /PID %a\" 2>/dev/null || \\\\\necho \"Could not find cmd.exe path\")",
+      "Bash(cd \"C:\\\\Users\\\\vicke\\\\OneDrive\\\\Documents\\\\GitHub\\\\UI_Navigator\" && /mnt/c/Windows/System32/cmd.exe /C \"for /f \\\\\"tokens=5\\\\\" %a in \\('netstat -ano ^| findstr :3333 ^| findstr LISTENING'\\) do taskkill /F /PID %a\")"
     ]
   }
 }
